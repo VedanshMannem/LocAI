@@ -376,7 +376,7 @@ class AIModelGUI:
         self.is_generating = True
         self.stop_generation.clear()
         self.submit_button.configure(state="normal", text="Stop")
-        
+
         def get_ai_response():
             try:
                 max_tokens = int(self.max_tokens_var.get()) if self.max_tokens_var.get().isdigit() else 256
