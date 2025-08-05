@@ -5,6 +5,7 @@ import threading
 import os
 import datetime
 from response import ask_ai
+from embed_files import build_embeddings
 
 class AIModelGUI:
     def __init__(self):
@@ -51,7 +52,7 @@ class AIModelGUI:
                 else:
                     button.configure(fg_color=("gray50", "gray40"))  # inactive
     
-    # main layout
+    # base layout
     def create_main_layout(self):
         main_container = ctk.CTkFrame(self.root)
         main_container.pack(fill="both", expand=True, padx=10, pady=10)
@@ -119,7 +120,7 @@ class AIModelGUI:
         )
         self.input_text.pack(fill="x", padx=10, pady=(0, 10))
         
-        # frame for buttons
+        # buttons
         button_frame = ctk.CTkFrame(input_frame)
         button_frame.pack(fill="x", padx=10, pady=(0, 10))
         
@@ -149,51 +150,35 @@ class AIModelGUI:
             self.send_message()
             return "break"  # Prevents Enter from adding a new line
         
-        # ctrl+backspace to delete previous word
+        # ctrl+backspace
         def on_ctrl_backspace(event):
-            try:
-                cursor_pos = self.input_text.index(tk.INSERT)
-                text_before = self.input_text.get("1.0", cursor_pos)
-                
-                i = len(text_before) - 1
-                
-                while i >= 0 and text_before[i].isspace():
-                    i -= 1
-                
-                word_end = i + 1  
-                while i >= 0 and not text_before[i].isspace():
-                    i -= 1
-                
-                word_start = i + 1  # Start of the word
-                
-                lines_before_start = text_before[:word_start].count('\n')
-                if '\n' in text_before[:word_start]:
-                    last_newline_pos = text_before[:word_start].rfind('\n')
-                    char_pos_start = word_start - last_newline_pos - 1
-                else:
-                    char_pos_start = word_start
-                
-                delete_from = f"{lines_before_start + 1}.{char_pos_start}"
-                
-                # Delete from word start to cursor
-                self.input_text.delete(delete_from, cursor_pos)
-                
-            except Exception:
-                # Fallback: just delete one character if word detection fails
-                try:
-                    cursor_pos = self.input_text.index(tk.INSERT)
-                    line, char = map(int, cursor_pos.split('.'))
-                    if char > 0:
-                        prev_pos = f"{line}.{char-1}"
-                    elif line > 1:
-                        prev_line_text = self.input_text.get(f"{line-1}.0", f"{line-1}.end")
-                        prev_pos = f"{line-1}.{len(prev_line_text)}"
-                    else:
-                        prev_pos = "1.0"
-                    self.input_text.delete(prev_pos, cursor_pos)
-                except Exception:
-                    pass
+        
+            cursor_pos = self.input_text.index(tk.INSERT)
+            text_before = self.input_text.get("1.0", cursor_pos)
             
+            i = len(text_before) - 1
+            
+            while i >= 0 and text_before[i].isspace():
+                i -= 1
+            
+            word_end = i + 1  
+            while i >= 0 and not text_before[i].isspace():
+                i -= 1
+            
+            word_start = i + 1  # Start of the word
+            
+            lines_before_start = text_before[:word_start].count('\n')
+            if '\n' in text_before[:word_start]:
+                last_newline_pos = text_before[:word_start].rfind('\n')
+                char_pos_start = word_start - last_newline_pos - 1
+            else:
+                char_pos_start = word_start
+            
+            delete_from = f"{lines_before_start + 1}.{char_pos_start}"
+            
+            # Delete from word start to cursor
+            self.input_text.delete(delete_from, cursor_pos)
+    
             return "break"
         
         self.input_text.bind("<Return>", on_enter)
@@ -246,6 +231,27 @@ class AIModelGUI:
         )
         theme_menu.pack(fill="x", padx=10, pady=(0, 10))
         
+        # RAG updates
+        rag_update = ctk.CTkFrame(settings_frame)
+        rag_update.pack(fill="x", padx=20, pady=10)
+        rag_label = ctk.CTkLabel(rag_update, text="RAG Updates:")
+        rag_label.pack(anchor="w", padx=10, pady=(10, 0))
+        rag_button = ctk.CTkButton(
+            rag_update,
+            text="Retrieve new data",
+            command=self.update_RAG,
+            font=ctk.CTkFont(size=12)
+        )
+        rag_button.pack(anchor="w", padx=10, pady=(0, 0))
+
+        rag_info = ctk.CTkLabel(
+            rag_update, 
+            text="RAG updates will be applied automatically when you run the RAG script.",
+            font=ctk.CTkFont(size=10),
+            text_color="gray"
+        )
+        rag_info.pack(anchor="w", padx=10, pady=(0, 10))
+
         # conversation history length
         history_frame = ctk.CTkFrame(settings_frame)
         history_frame.pack(fill="x", padx=20, pady=10)
@@ -280,7 +286,12 @@ class AIModelGUI:
 
     def change_theme(self, theme):
         ctk.set_appearance_mode(theme)
-    
+
+    def update_RAG(self):
+        build_embeddings(r"C:\Users\manne\Downloads\LocAI-Test")
+        return True
+
+    # making sure settings are good
     def save_settings(self):
         try:
             max_tokens = int(self.max_tokens_var.get())
@@ -305,6 +316,7 @@ class AIModelGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save settings: {str(e)}")
             
+    # send message to ai
     def add_message(self, sender, message):
         self.chat_display.configure(state="normal")
         
@@ -324,46 +336,39 @@ class AIModelGUI:
         self.chat_display.see("end")
         self.chat_display.configure(state="disabled")
     
+    # send message or stop generation
     def handle_submit_button(self):
-        """Handle submit button - either send message or stop generation"""
         if self.is_generating:
             self.stop_ai_generation()
         else:
             self.send_message()
     
     def stop_ai_generation(self):
-        """Stop the current AI generation"""
         self.stop_generation.set()
         self.submit_button.configure(text="Stopping...", state="disabled")
         
-        # Add a message indicating cancellation
         self.root.after(100, lambda: self.add_message("System", "Generation stopped by user."))
         
-        # Reset button after a short delay
         self.root.after(1000, self.reset_submit_button)
     
     def reset_submit_button(self):
-        """Reset submit button to normal state"""
         self.is_generating = False
         self.stop_generation.clear()
         self.submit_button.configure(state="normal", text="Send")
     
     def manage_conversation_history(self):
-        """Keep only the most recent conversation pairs to manage context size"""
-        # Each pair is user + assistant, so we want max_history_pairs * 2 messages
         max_messages = self.max_history_pairs * 2
         
         if len(self.conversation_history) > max_messages:
-            # Keep the most recent messages
             self.conversation_history = self.conversation_history[-max_messages:]
     
+    # send message & add to history
     def send_message(self):
         user_input = self.input_text.get("1.0", "end-1c").strip()
         
         if not user_input:
             return
 
-        # Add user message to conversation history
         self.conversation_history.append({
             'role': 'user',
             'content': user_input
@@ -372,7 +377,6 @@ class AIModelGUI:
         self.add_message("You", user_input)
         self.input_text.delete("1.0", "end")
         
-        # Set generation state
         self.is_generating = True
         self.stop_generation.clear()
         self.submit_button.configure(state="normal", text="Stop")
@@ -382,27 +386,21 @@ class AIModelGUI:
                 max_tokens = int(self.max_tokens_var.get()) if self.max_tokens_var.get().isdigit() else 256
                 threads = int(self.threads_var.get()) if self.threads_var.get().isdigit() else os.cpu_count() // 2
                 
-                # Check if we should stop before starting
                 if self.stop_generation.is_set():
                     return
                 
-                # Pass conversation history for context
                 response = ask_ai(user_input, max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
                 
-                # Check if we should stop before processing response
                 if self.stop_generation.is_set():
-                    # Remove the user message from history since we're cancelling
                     if self.conversation_history and self.conversation_history[-1]['role'] == 'user':
                         self.conversation_history.pop()
                     return
                 
-                # Add AI response to conversation history
                 self.conversation_history.append({
                     'role': 'assistant',
                     'content': response
                 })
                 
-                # Manage conversation history size
                 self.manage_conversation_history()
                 
                 self.root.after(0, lambda: self.add_message("AI", response))
@@ -413,15 +411,14 @@ class AIModelGUI:
                     self.root.after(0, lambda: self.add_message("Error", error_msg))
 
             finally:
-                # Reset button state
                 if not self.stop_generation.is_set():
                     self.root.after(0, self.reset_submit_button)
 
         self.current_generation_thread = threading.Thread(target=get_ai_response, daemon=True)
         self.current_generation_thread.start()
     
+    # clear full chat
     def clear_chat(self):
-        # Stop any ongoing generation
         if self.is_generating:
             self.stop_ai_generation()
         
@@ -429,7 +426,6 @@ class AIModelGUI:
         self.chat_display.delete("1.0", "end")
         self.chat_display.configure(state="disabled")
         
-        # Clear conversation history
         self.conversation_history = []
         
         self.add_message("System", "Chat cleared. How can I help you?")
