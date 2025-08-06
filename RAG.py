@@ -17,11 +17,10 @@ def load_text_files(folder_path):
                     content += page.get_text()
                 text_data.append((str(file_path), content))
         # elif file_path.suffix.lower() == '.png': # for png files of text (receipts, etc.)
-            
-        #     # FIXME & ADD @ ~ line 90
-        #     with open(file_path, 'rb') as f:
-        #         content = f.read()
-        #         text_data.append((str(file_path), content))
+            #     # FIXME & ADD @ ~ line 90
+            #     with open(file_path, 'rb') as f:
+            #         content = f.read()
+            #         text_data.append((str(file_path), content))
 
     return text_data
 
