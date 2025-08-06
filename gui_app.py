@@ -5,7 +5,8 @@ import threading
 import os
 import datetime
 from response import ask_ai
-from embed_files import build_embeddings
+from RAG import build_embeddings, retrieve_relevant_chunks, build_prompt, load_faiss_index_and_metadata
+from sentence_transformers import SentenceTransformer
 
 class AIModelGUI:
     def __init__(self):
@@ -32,7 +33,10 @@ class AIModelGUI:
         self.threads_var = ctk.StringVar(value=str(os.cpu_count() // 2))
         self.theme_var = ctk.StringVar(value="dark")
         self.history_length_var = ctk.StringVar(value="10")
-        
+
+        self.embedder = SentenceTransformer("./models/all-MiniLM-L6-v2")
+        self.index, self.metadata = load_faiss_index_and_metadata()
+
         self.create_main_layout()
         self.create_chat_page()
         self.create_settings_page()
@@ -289,6 +293,8 @@ class AIModelGUI:
 
     def update_RAG(self):
         build_embeddings(r"C:\Users\manne\Downloads\LocAI-Test")
+        messagebox.showinfo("RAG Update", "RAG data updated successfully!")
+        self.index, self.metadata = load_faiss_index_and_metadata()
         return True
 
     # making sure settings are good
@@ -388,9 +394,9 @@ class AIModelGUI:
                 
                 if self.stop_generation.is_set():
                     return
-                
-                response = ask_ai(user_input, max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
-                
+
+                response = ask_ai(build_prompt(retrieve_relevant_chunks(user_input, self.embedder, self.index, self.metadata), user_input), max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
+
                 if self.stop_generation.is_set():
                     if self.conversation_history and self.conversation_history[-1]['role'] == 'user':
                         self.conversation_history.pop()
@@ -434,6 +440,7 @@ class AIModelGUI:
         self.root.mainloop()
 
 def main():
+
     try:
         app = AIModelGUI()
         app.run()
