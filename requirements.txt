@@ -1,0 +1,12 @@
+customtkinter>=5.2.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
+llama-cpp-python>=0.2.0
+
+PyMuPDF>=1.23.0  # PDF
+
+# Development and packaging
+pyinstaller>=5.13.0
+
+# System utilities
+psutil>=5.9.0
