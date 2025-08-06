@@ -51,6 +51,7 @@ Thumbs.db
 models/*.gguf
 models/*.bin
 models/*.safetensors
+!models/README.md
 
 # RAG Data (user-generated)
 rag_index.faiss
