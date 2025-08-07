@@ -8,6 +8,120 @@ from response import ask_ai
 from RAG import build_embeddings, retrieve_relevant_chunks, build_prompt, load_faiss_index_and_metadata
 from sentence_transformers import SentenceTransformer
 
+class ContextTooltip:
+    def __init__(self, widget, get_context_func):
+        self.widget = widget
+        self.get_context_func = get_context_func
+        self.tooltip = None
+        self.delay = 500 
+        self.tooltip_job = None
+
+        if hasattr(widget, '_canvas'):
+            self.bind_widget = widget._canvas
+        else:
+            self.bind_widget = widget
+
+        self.widget.bind("<Enter>", self.on_enter)
+        self.widget.bind("<Leave>", self.on_leave)
+        self.widget.bind("<Motion>", self.on_motion)
+
+        chunks = self.get_context_func()
+        if not chunks:
+            return
+
+    def on_enter(self, event):
+        self.schedule_tooltip()
+    
+    def on_leave(self, event):
+        self.hide_tooltip()
+
+    def on_motion(self, event):
+        if self.tooltip:
+            self.hide_tooltip()
+        self.schedule_tooltip()
+
+    def schedule_tooltip(self):
+        self.cancel_tooltip()
+        self.tooltip_job = self.widget.after(self.delay, self.show_tooltip)
+    
+    def cancel_tooltip(self):
+        if self.tooltip_job:
+            self.widget.after_cancel(self.tooltip_job)
+            self.tooltip_job = None
+
+    def show_tooltip(self):
+        
+        if self.tooltip:
+            return
+        
+        chunks = self.get_context_func()
+        if not chunks:
+            return
+
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() - 250
+
+        if y < 0:
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
+
+        self.tooltip = tk.Toplevel(self.widget)
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.wm_geometry(f"+{x}+{y}")
+        self.tooltip.configure(bg="black", relief="solid", bd=1)
+
+        frame = tk.Frame(self.tooltip, bg="black")
+        frame.pack(fill="both", expand=True)
+
+        # title
+        title = tk.Label(
+            frame, 
+            text="Context fetched from RAG:",
+            bg="black",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            pady=5
+        )
+        title.pack(anchor="w", padx=5)
+
+        text_frame = tk.Frame(frame, bg="black")
+        text_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        text_widget = tk.Text(
+            text_frame, 
+            text =  self.get_context_func(), 
+            width=80,
+            height=15,
+            bg="gray20",
+            fg="white",
+            font=("Courier", 9),
+            wrap=tk.WORD,
+            relief="flat"
+        )
+
+        scrollbar = tk.Scrollbar(text_frame, command=text_widget.yview)
+        text_widget.configure(yscrollcommand=scrollbar.set)
+
+        text_widget.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        text_widget.insert("1.0", chunks)
+        text_widget.configure(state="disabled")
+
+        close_label = tk.Label(
+            frame, 
+            text="Move mouse away to close",
+            bg="black",
+            fg="gray",
+            font=("Arial", 8, "italic"),
+            pady = 2
+        )
+        close_label.pack()
+
+    def hide_tooltip(self):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+                
 class AIModelGUI:
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -27,6 +141,9 @@ class AIModelGUI:
         self.is_generating = False
         self.stop_generation = threading.Event()
         self.current_generation_thread = None
+
+        self.chunks = []
+        self.last_user_query = ""
         
         # settings
         self.max_tokens_var = ctk.StringVar(value="256")
@@ -149,6 +266,27 @@ class AIModelGUI:
         )
         self.clear_button.pack(side="right", padx=5, pady=5)
         
+        def get_current_chunks():
+            if not self.chunks:
+                return "No context available."
+            
+            context = []
+            context.append("Last Query: ", self.last_user_query)
+            context.append("=" * 30)
+            context.append("")
+
+            for i, chunk in enumerate(self.chunks):
+                context.append(f"Context Chunk {i+1}")
+                context.append("-" * 30)
+
+                displayed = chunk[:500] + "..." if len(chunk) > 500 else chunk
+                context.append(displayed)
+                context.append("")
+
+            return "\n".join(context)
+
+        ContextTooltip(self.submit_button, get_current_chunks)
+
         # enter
         def on_enter(event):
             self.send_message()
@@ -255,6 +393,9 @@ class AIModelGUI:
             text_color="gray"
         )
         rag_info.pack(anchor="w", padx=10, pady=(0, 10))
+
+        # Download models
+        
 
         # conversation history length
         history_frame = ctk.CTkFrame(settings_frame)
@@ -394,8 +535,11 @@ class AIModelGUI:
                 
                 if self.stop_generation.is_set():
                     return
-
-                response = ask_ai(build_prompt(retrieve_relevant_chunks(user_input, self.embedder, self.index, self.metadata), user_input), max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
+                
+                chunks = retrieve_relevant_chunks(user_input, self.embedder, self.index, self.metadata)
+                self.chunks = chunks
+                self.last_user_query = user_input
+                response = ask_ai(build_prompt(chunks, user_input), max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
 
                 if self.stop_generation.is_set():
                     if self.conversation_history and self.conversation_history[-1]['role'] == 'user':
