@@ -7,120 +7,6 @@ import datetime
 from response import ask_ai
 from RAG import build_embeddings, retrieve_relevant_chunks, build_prompt, load_faiss_index_and_metadata
 from sentence_transformers import SentenceTransformer
-
-class ContextTooltip:
-    def __init__(self, widget, get_context_func):
-        self.widget = widget
-        self.get_context_func = get_context_func
-        self.tooltip = None
-        self.delay = 500 
-        self.tooltip_job = None
-
-        if hasattr(widget, '_canvas'):
-            self.bind_widget = widget._canvas
-        else:
-            self.bind_widget = widget
-
-        self.widget.bind("<Enter>", self.on_enter)
-        self.widget.bind("<Leave>", self.on_leave)
-        self.widget.bind("<Motion>", self.on_motion)
-
-        chunks = self.get_context_func()
-        if not chunks:
-            return
-
-    def on_enter(self, event):
-        self.schedule_tooltip()
-    
-    def on_leave(self, event):
-        self.hide_tooltip()
-
-    def on_motion(self, event):
-        if self.tooltip:
-            self.hide_tooltip()
-        self.schedule_tooltip()
-
-    def schedule_tooltip(self):
-        self.cancel_tooltip()
-        self.tooltip_job = self.widget.after(self.delay, self.show_tooltip)
-    
-    def cancel_tooltip(self):
-        if self.tooltip_job:
-            self.widget.after_cancel(self.tooltip_job)
-            self.tooltip_job = None
-
-    def show_tooltip(self):
-        
-        if self.tooltip:
-            return
-        
-        chunks = self.get_context_func()
-        if not chunks:
-            return
-
-        x = self.widget.winfo_rootx()
-        y = self.widget.winfo_rooty() - 250
-
-        if y < 0:
-            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
-
-        self.tooltip = tk.Toplevel(self.widget)
-        self.tooltip.wm_overrideredirect(True)
-        self.tooltip.wm_geometry(f"+{x}+{y}")
-        self.tooltip.configure(bg="black", relief="solid", bd=1)
-
-        frame = tk.Frame(self.tooltip, bg="black")
-        frame.pack(fill="both", expand=True)
-
-        # title
-        title = tk.Label(
-            frame, 
-            text="Context fetched from RAG:",
-            bg="black",
-            fg="white",
-            font=("Arial", 10, "bold"),
-            pady=5
-        )
-        title.pack(anchor="w", padx=5)
-
-        text_frame = tk.Frame(frame, bg="black")
-        text_frame.pack(fill="both", expand=True, padx=5, pady=5)
-
-        text_widget = tk.Text(
-            text_frame, 
-            text =  self.get_context_func(), 
-            width=80,
-            height=15,
-            bg="gray20",
-            fg="white",
-            font=("Courier", 9),
-            wrap=tk.WORD,
-            relief="flat"
-        )
-
-        scrollbar = tk.Scrollbar(text_frame, command=text_widget.yview)
-        text_widget.configure(yscrollcommand=scrollbar.set)
-
-        text_widget.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        text_widget.insert("1.0", chunks)
-        text_widget.configure(state="disabled")
-
-        close_label = tk.Label(
-            frame, 
-            text="Move mouse away to close",
-            bg="black",
-            fg="gray",
-            font=("Arial", 8, "italic"),
-            pady = 2
-        )
-        close_label.pack()
-
-    def hide_tooltip(self):
-        if self.tooltip:
-            self.tooltip.destroy()
-            self.tooltip = None
                 
 class AIModelGUI:
     def __init__(self):
@@ -129,8 +15,8 @@ class AIModelGUI:
         
         self.root = ctk.CTk()
         self.root.title("Personal AI Assistant")
-        self.root.geometry("800x600")
-        self.root.minsize(500, 800)
+        self.root.geometry("1200x700")
+        self.root.minsize(800, 600)
         
         self.pages = {}
         self.current_page = None
@@ -142,8 +28,9 @@ class AIModelGUI:
         self.stop_generation = threading.Event()
         self.current_generation_thread = None
 
-        self.chunks = []
-        self.last_user_query = ""
+        # Store context data for each message
+        self.message_contexts = {}  # Format: {message_id: {chunks: [...], query: "..."}}
+        self.current_message_id = 0
         
         # settings
         self.max_tokens_var = ctk.StringVar(value="256")
@@ -157,7 +44,7 @@ class AIModelGUI:
         self.create_main_layout()
         self.create_chat_page()
         self.create_settings_page()
-        self.show_page("chat")  
+        self.show_page("chat")
 
     def show_page(self, page_name):
         if self.current_page:
@@ -219,21 +106,68 @@ class AIModelGUI:
     def create_chat_page(self):
         chat_page = ctk.CTkFrame(self.content_frame)
         
-        chat_frame = ctk.CTkFrame(chat_page)
-        chat_frame.pack(fill="both", expand=True, padx=10, pady=(0,5))
+        # Main horizontal container for chat and context
+        main_horizontal = ctk.CTkFrame(chat_page)
+        main_horizontal.pack(fill="both", expand=True, padx=10, pady=(0,5))
         
+        # Left side - Chat area (takes 70% of width)
+        chat_container = ctk.CTkFrame(main_horizontal)
+        chat_container.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        
+        # Chat display
         self.chat_display = ctk.CTkTextbox(
-            chat_frame,
+            chat_container,
             height=300,
             font=ctk.CTkFont(size=12)
         )
         self.chat_display.pack(fill="both", expand=True, padx=10, pady=10)
         
-        # input
+        # Configure tags for clickable user messages
+        self.chat_display._textbox.tag_configure("user_clickable", 
+                                                foreground="#4A9EFF", 
+                                                underline=True)
+        self.chat_display._textbox.tag_bind("user_clickable", "<Button-1>", self.on_user_message_click)
+        self.chat_display._textbox.tag_bind("user_clickable", "<Enter>", lambda e: self.chat_display._textbox.configure(cursor="hand2"))
+        self.chat_display._textbox.tag_bind("user_clickable", "<Leave>", lambda e: self.chat_display._textbox.configure(cursor=""))
+        
+        # Right side - Context panel (takes 30% of width)
+        context_container = ctk.CTkFrame(main_horizontal)
+        context_container.pack(side="right", fill="both", padx=(5, 0))
+        context_container.configure(width=350)
+        context_container.pack_propagate(False)
+        
+        # Context panel title
+        context_title = ctk.CTkLabel(
+            context_container, 
+            text="RAG Context",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        context_title.pack(pady=(10, 5), padx=10)
+        
+        # Context info label
+        self.context_info = ctk.CTkLabel(
+            context_container,
+            text="Click on any of your messages to see the context used",
+            font=ctk.CTkFont(size=10),
+            text_color="gray"
+        )
+        self.context_info.pack(pady=(0, 10), padx=10)
+        
+        # Context display
+        self.context_display = ctk.CTkTextbox(
+            context_container,
+            font=ctk.CTkFont(size=10, family="Courier"),
+            wrap="word"
+        )
+        self.context_display.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        
+        # Input section at bottom
         input_frame = ctk.CTkFrame(chat_page)
-        input_frame.pack(fill="x", padx=10, pady=(0, 10))        
+        input_frame.pack(fill="x", padx=10, pady=(0, 10))
+        
         input_label = ctk.CTkLabel(input_frame, text="Question:")
         input_label.pack(anchor="w", padx=10, pady=(10, 5))
+        
         self.input_text = ctk.CTkTextbox(
             input_frame, 
             height=120,
@@ -265,36 +199,13 @@ class AIModelGUI:
             font=ctk.CTkFont(size=12)
         )
         self.clear_button.pack(side="right", padx=5, pady=5)
-        
-        def get_current_chunks():
-            if not self.chunks:
-                return "No context available."
-            
-            context = []
-            context.append("Last Query: ", self.last_user_query)
-            context.append("=" * 30)
-            context.append("")
 
-            for i, chunk in enumerate(self.chunks):
-                context.append(f"Context Chunk {i+1}")
-                context.append("-" * 30)
-
-                displayed = chunk[:500] + "..." if len(chunk) > 500 else chunk
-                context.append(displayed)
-                context.append("")
-
-            return "\n".join(context)
-
-        ContextTooltip(self.submit_button, get_current_chunks)
-
-        # enter
+        # Keyboard shortcuts
         def on_enter(event):
             self.send_message()
-            return "break"  # Prevents Enter from adding a new line
+            return "break"
         
-        # ctrl+backspace
         def on_ctrl_backspace(event):
-        
             cursor_pos = self.input_text.index(tk.INSERT)
             text_before = self.input_text.get("1.0", cursor_pos)
             
@@ -307,7 +218,7 @@ class AIModelGUI:
             while i >= 0 and not text_before[i].isspace():
                 i -= 1
             
-            word_start = i + 1  # Start of the word
+            word_start = i + 1
             
             lines_before_start = text_before[:word_start].count('\n')
             if '\n' in text_before[:word_start]:
@@ -317,10 +228,7 @@ class AIModelGUI:
                 char_pos_start = word_start
             
             delete_from = f"{lines_before_start + 1}.{char_pos_start}"
-            
-            # Delete from word start to cursor
             self.input_text.delete(delete_from, cursor_pos)
-    
             return "break"
         
         self.input_text.bind("<Return>", on_enter)
@@ -433,7 +341,7 @@ class AIModelGUI:
         ctk.set_appearance_mode(theme)
 
     def update_RAG(self):
-        build_embeddings(r"C:\Users\manne\Downloads\LocAI-Test")
+        build_embeddings(r"C:\Users\manne\Downloads")
         messagebox.showinfo("RAG Update", "RAG data updated successfully!")
         self.index, self.metadata = load_faiss_index_and_metadata()
         return True
@@ -463,6 +371,49 @@ class AIModelGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save settings: {str(e)}")
             
+    def on_user_message_click(self, event):
+        index = self.chat_display._textbox.index(f"@{event.x},{event.y}")
+        
+        # Find which message was clicked by looking at tags
+        tags = self.chat_display._textbox.tag_names(index)
+        
+        for tag in tags:
+            if tag.startswith("msg_"):
+                message_id = int(tag.split("_")[1])
+                self.show_context_for_message(message_id)
+                break
+    
+    def show_context_for_message(self, message_id):
+        if message_id not in self.message_contexts:
+            self.context_display.delete("1.0", "end")
+            self.context_display.insert("1.0", "No context available for this message.")
+            return
+        
+        context_data = self.message_contexts[message_id]
+        chunks = context_data.get('chunks', [])
+        query = context_data.get('query', '')
+        
+        if not chunks:
+            self.context_display.delete("1.0", "end")
+            self.context_display.insert("1.0", "No context chunks found for this query.")
+            return
+        
+        # Format the context display
+        context_text = f"Query: {query}\n"
+        context_text += "=" * 50 + "\n\n"
+        
+        for i, chunk in enumerate(chunks):
+            context_text += f"Context Chunk {i+1}:\n"
+            context_text += "-" * 30 + "\n"
+            # Show full chunk in context panel
+            context_text += chunk + "\n\n"
+        
+        self.context_display.delete("1.0", "end")
+        self.context_display.insert("1.0", context_text)
+        
+        # Update info label
+        self.context_info.configure(text=f"Context for: \"{query[:50]}{'...' if len(query) > 50 else ''}\"")
+
     # send message to ai
     def add_message(self, sender, message):
         self.chat_display.configure(state="normal")
@@ -470,8 +421,10 @@ class AIModelGUI:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         
         if sender == "You":
+            # Make user messages clickable
+            message_tag = f"msg_{self.current_message_id}"
             self.chat_display.insert("end", f"[{timestamp}] You:\n", "user")
-            self.chat_display.insert("end", f"{message}\n\n", "user_message")
+            self.chat_display.insert("end", f"{message}\n\n", ("user_message", "user_clickable", message_tag))
         elif sender == "AI":
             self.chat_display.insert("end", f"[{timestamp}] AI Assistant:\n", "ai")
             self.chat_display.insert("end", f"{message}\n\n", "ai_message")
@@ -521,7 +474,11 @@ class AIModelGUI:
             'content': user_input
         })
 
+        # Store the current message ID for context association
+        current_msg_id = self.current_message_id
         self.add_message("You", user_input)
+        self.current_message_id += 1
+        
         self.input_text.delete("1.0", "end")
         
         self.is_generating = True
@@ -536,9 +493,15 @@ class AIModelGUI:
                 if self.stop_generation.is_set():
                     return
                 
+                # Get RAG context
                 chunks = retrieve_relevant_chunks(user_input, self.embedder, self.index, self.metadata)
-                self.chunks = chunks
-                self.last_user_query = user_input
+                
+                # Store context for this message
+                self.message_contexts[current_msg_id] = {
+                    'chunks': chunks,
+                    'query': user_input
+                }
+                
                 response = ask_ai(build_prompt(chunks, user_input), max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
 
                 if self.stop_generation.is_set():
@@ -576,7 +539,14 @@ class AIModelGUI:
         self.chat_display.delete("1.0", "end")
         self.chat_display.configure(state="disabled")
         
+        # Clear context panel
+        self.context_display.delete("1.0", "end")
+        self.context_info.configure(text="Click on any of your messages to see the context used")
+        
+        # Clear stored data
         self.conversation_history = []
+        self.message_contexts = {}
+        self.current_message_id = 0
         
         self.add_message("System", "Chat cleared. How can I help you?")
     
@@ -584,7 +554,6 @@ class AIModelGUI:
         self.root.mainloop()
 
 def main():
-
     try:
         app = AIModelGUI()
         app.run()

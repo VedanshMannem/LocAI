@@ -72,7 +72,7 @@ def build_embeddings(folder_path):
     
     return True
 
-def retrieve_relevant_chunks(query, embedder, index, data, top_k=3):
+def retrieve_relevant_chunks(query, embedder, index, data, top_k=2):
     query_embedding = embedder.encode([query])
     D, I = index.search(query_embedding, top_k)
     
