@@ -3,7 +3,6 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import pickle
 import fitz  # PyMuPDF
-import os
 
 def load_text_files(folder_path):
     text_data = []
