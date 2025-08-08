@@ -60,9 +60,12 @@ rag_metadata.pkl
 user_data/
 
 # PyInstaller
-*.spec
 build/
 dist/
+*.spec.bak
+
+# Keep LocAI.spec (needed for builds)
+!LocAI.spec
 
 # Logs
 *.log

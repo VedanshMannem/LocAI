@@ -3,6 +3,7 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import pickle
 import fitz  # PyMuPDF
+import os
 
 def load_text_files(folder_path):
     text_data = []
@@ -32,7 +33,8 @@ def chunk_text(text, chunk_size=500, overlap=50):
         chunks.append(chunk)
     return chunks
 
-embedder = SentenceTransformer("./models/all-MiniLM-L6-v2")
+model_path = "../models/all-MiniLM-L6-v2" # . for source and .. for build
+embedder = SentenceTransformer(model_path)
 
 def embed_chunks(chunks):
     return embedder.encode(chunks, convert_to_numpy=True)
@@ -43,6 +45,7 @@ def build_faiss_index(embeddings, chunks, metadata):
     index.add(embeddings)
 
     faiss.write_index(index, "rag_index.faiss")
+    
     # Only save metadata with file positions, not full chunks
     with open("rag_metadata.pkl", "wb") as f:
         pickle.dump({'metadata': metadata}, f)
@@ -103,13 +106,10 @@ def retrieve_relevant_chunks(query, embedder, index, data, top_k=2):
         except Exception as e:
             print(f"Error reading {file_path}: {e}")
     
-    print("=" * 40)
-    print("Chunks: ", chunks)
     return chunks
 
 def build_prompt(retrieved_chunks, user_question):
     context = "\n\n".join(retrieved_chunks)
-    print("Context: ", context)
     return f"Here is some context about the user:\n\n{context}. You may not= need to use this information to answer the question; it's just to provide more context.\n\nHere is the question: {user_question}"
 
 def load_faiss_index_and_metadata():

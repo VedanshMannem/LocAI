@@ -1,6 +1,6 @@
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import scrolledtext, messagebox
+from tkinter import messagebox
 import threading
 import os
 import datetime
@@ -29,7 +29,7 @@ class AIModelGUI:
         self.current_generation_thread = None
 
         # Store context data for each message
-        self.message_contexts = {}  # Format: {message_id: {chunks: [...], query: "..."}}
+        self.message_contexts = {} 
         self.current_message_id = 0
         
         # settings
@@ -37,8 +37,10 @@ class AIModelGUI:
         self.threads_var = ctk.StringVar(value=str(os.cpu_count() // 2))
         self.theme_var = ctk.StringVar(value="dark")
         self.history_length_var = ctk.StringVar(value="10")
+        self.rag_enabled = True  # RAG switch state
 
-        self.embedder = SentenceTransformer("./models/all-MiniLM-L6-v2")
+        model_path = "../models/all-MiniLM-L6-v2"  # . for source and .. for build
+        self.embedder = SentenceTransformer(model_path)
         self.index, self.metadata = load_faiss_index_and_metadata()
 
         self.create_main_layout()
@@ -110,7 +112,7 @@ class AIModelGUI:
         main_horizontal = ctk.CTkFrame(chat_page)
         main_horizontal.pack(fill="both", expand=True, padx=10, pady=(0,5))
         
-        # Left side - Chat area (takes 70% of width)
+        # chat
         chat_container = ctk.CTkFrame(main_horizontal)
         chat_container.pack(side="left", fill="both", expand=True, padx=(0, 5))
         
@@ -178,6 +180,29 @@ class AIModelGUI:
         # buttons
         button_frame = ctk.CTkFrame(input_frame)
         button_frame.pack(fill="x", padx=10, pady=(0, 10))
+        
+        # RAG switch
+        self.rag_switch = ctk.CTkSwitch(
+            button_frame,
+            text="Enable RAG Context",
+            command=self.toggle_rag,
+            onvalue=True,
+            offvalue=False
+        )
+        self.rag_switch.pack(side="left", padx=(0, 10), pady=5)
+
+        rag_switch_info = ctk.CTkLabel(
+            button_frame,
+            text="Enable for longer inference time for more context",
+            font=ctk.CTkFont(size=10),
+            text_color="gray",
+            wraplength=400
+        )
+        rag_switch_info.pack(side="left", padx=(0, 10), pady=5)
+
+        # Set initial state
+        if self.rag_enabled:
+            self.rag_switch.select()
         
         # submit
         self.submit_button = ctk.CTkButton(
@@ -302,9 +327,8 @@ class AIModelGUI:
         )
         rag_info.pack(anchor="w", padx=10, pady=(0, 10))
 
-        # Download models
+        # TODO: Add downloading models functionality
         
-
         # conversation history length
         history_frame = ctk.CTkFrame(settings_frame)
         history_frame.pack(fill="x", padx=20, pady=10)
@@ -339,6 +363,17 @@ class AIModelGUI:
 
     def change_theme(self, theme):
         ctk.set_appearance_mode(theme)
+
+    def toggle_rag(self):
+        self.rag_enabled = self.rag_switch.get()
+        status = "enabled" if self.rag_enabled else "disabled"
+        
+        # Update context panel info
+        if hasattr(self, 'context_info'):
+            if self.rag_enabled:
+                self.context_info.configure(text="Click on any of your messages to see the context used")
+            else:
+                self.context_info.configure(text="RAG is disabled - AI responds without document context")
 
     def update_RAG(self):
         build_embeddings(r"C:\Users\manne\Downloads")
@@ -493,8 +528,10 @@ class AIModelGUI:
                 if self.stop_generation.is_set():
                     return
                 
-                # Get RAG context
-                chunks = retrieve_relevant_chunks(user_input, self.embedder, self.index, self.metadata)
+                # Get RAG context only if enabled
+                chunks = []
+                if self.rag_enabled:
+                    chunks = retrieve_relevant_chunks(user_input, self.embedder, self.index, self.metadata)
                 
                 # Store context for this message
                 self.message_contexts[current_msg_id] = {
@@ -502,7 +539,13 @@ class AIModelGUI:
                     'query': user_input
                 }
                 
-                response = ask_ai(build_prompt(chunks, user_input), max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
+                # Build prompt with or without RAG context
+                if self.rag_enabled and chunks:
+                    prompt = build_prompt(chunks, user_input)
+                else:
+                    prompt = user_input
+                
+                response = ask_ai(prompt, max_tokens, n_threads=threads, conversation_history=self.conversation_history[:-1])
 
                 if self.stop_generation.is_set():
                     if self.conversation_history and self.conversation_history[-1]['role'] == 'user':
