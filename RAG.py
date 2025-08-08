@@ -33,7 +33,7 @@ def chunk_text(text, chunk_size=500, overlap=50):
         chunks.append(chunk)
     return chunks
 
-model_path = "../models/all-MiniLM-L6-v2" # . for source and .. for build
+model_path = "./models/all-MiniLM-L6-v2" # . for source and .. for build
 embedder = SentenceTransformer(model_path)
 
 def embed_chunks(chunks):

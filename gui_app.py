@@ -39,7 +39,7 @@ class AIModelGUI:
         self.history_length_var = ctk.StringVar(value="10")
         self.rag_enabled = True  # RAG switch state
 
-        model_path = "../models/all-MiniLM-L6-v2"  # . for source and .. for build
+        model_path = "./models/all-MiniLM-L6-v2"  # . for source and .. for build
         self.embedder = SentenceTransformer(model_path)
         self.index, self.metadata = load_faiss_index_and_metadata()
 
@@ -376,7 +376,7 @@ class AIModelGUI:
                 self.context_info.configure(text="RAG is disabled - AI responds without document context")
 
     def update_RAG(self):
-        build_embeddings(r"C:\Users\manne\Downloads")
+        build_embeddings(r"") # Change to your downloads directory
         messagebox.showinfo("RAG Update", "RAG data updated successfully!")
         self.index, self.metadata = load_faiss_index_and_metadata()
         return True
