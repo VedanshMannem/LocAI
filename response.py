@@ -2,7 +2,7 @@ from llama_cpp import Llama
 import os
 
 def ask_ai(prompt, tokens, n_threads=4, conversation_history=None):
-    model_path = "./models/Phi-3-mini-4k-instruct-q4.gguf"  # . for source and .. for build
+    model_path = "./models/mistral-7b-instruct-v0.1.Q4_K_M.gguf"  # . for source and .. for build
     llm = Llama(
         model_path=model_path,
         n_ctx=4096,

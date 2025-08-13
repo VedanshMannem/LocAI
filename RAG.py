@@ -77,14 +77,12 @@ def build_embeddings(folder_path):
 def retrieve_relevant_chunks(query, embedder, index, data, top_k=2):
     query_embedding = embedder.encode([query])
     D, I = index.search(query_embedding, top_k)
-    
-    # Dynamically load chunks from original files
     chunks = []
     metadata = data['metadata']
     
     for i in I[0]:
         file_path, chunk_idx = metadata[i]
-        # Re-read and re-chunk the file to get the specific chunk
+        # Re-chunk for exact file
         try:
             if file_path.endswith('.txt') or file_path.endswith('.md'):
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
